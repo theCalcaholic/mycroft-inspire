@@ -25,11 +25,12 @@
 # skills, whether from other files in mycroft-core or from external libraries
 from os.path import dirname
 
-from adapt.intent import IntentBuilder
-from mycroft.skills.core import MycroftSkill
+from mycroft.skills.core import MycroftSkill, intent_handler
 from mycroft.util.log import getLogger
+from smtplib import SMTP
+import re
 
-__author__ = 'eward'
+__author__ = 'thecalcaholic'
 
 # Logger: used for debug lines, like "LOGGER.debug(xyz)". These
 # statements will show up in the command line when running Mycroft.
@@ -38,45 +39,22 @@ LOGGER = getLogger(__name__)
 # The logic of each skill is contained within its own class, which inherits
 # base methods from the MycroftSkill class with the syntax you can see below:
 # "class ____Skill(MycroftSkill)"
-class HelloWorldSkill(MycroftSkill):
+class MessagingSkill(MycroftSkill):
 
     # The constructor of the skill, which calls MycroftSkill's constructor
     def __init__(self):
-        super(HelloWorldSkill, self).__init__(name="HelloWorldSkill")
+        super(MessagingSkill, self).__init__(name="MessagingSkill")
+        self.message_builder = None
 
-    # This method loads the files needed for the skill's functioning, and
-    # creates and registers each intent that the skill uses
+    
     def initialize(self):
-        self.load_data_files(dirname(__file__))
+        self.register_intent_file('send.mail.intent', self.handle_send_mail)a
 
-        thank_you_intent = IntentBuilder("ThankYouIntent").\
-            require("ThankYouKeyword").build()
-        self.register_intent(thank_you_intent, self.handle_thank_you_intent)
-
-        how_are_you_intent = IntentBuilder("HowAreYouIntent").\
-            require("HowAreYouKeyword").build()
-        self.register_intent(how_are_you_intent,
-                             self.handle_how_are_you_intent)
-
-        hello_world_intent = IntentBuilder("HelloWorldIntent").\
-            require("HelloWorldKeyword").build()
-        self.register_intent(hello_world_intent,
-                             self.handle_hello_world_intent)
-
-    # The "handle_xxxx_intent" functions define Mycroft's behavior when
-    # each of the skill's intents is triggered: in this case, he simply
-    # speaks a response. Note that the "speak_dialog" method doesn't
-    # actually speak the text it's passed--instead, that text is the filename
-    # of a file in the dialog folder, and Mycroft speaks its contents when
-    # the method is called.
-    def handle_thank_you_intent(self, message):
-        self.speak_dialog("welcome")
-
-    def handle_how_are_you_intent(self, message):
-        self.speak_dialog("how.are.you")
-
-    def handle_hello_world_intent(self, message):
-        self.speak_dialog("hello.world")
+    def handle_send_mail(self, message):
+        self.message_builder = MessageBuilder('email')
+        utterance = message.data.get('utterance').lower();
+        
+        self.speak_dialog("enter.subject")
 
     # The "stop" method defines what Mycroft does when told to stop during
     # the skill's execution. In this case, since the skill's functionality
@@ -85,7 +63,31 @@ class HelloWorldSkill(MycroftSkill):
     def stop(self):
         pass
 
+class MessageBuilder:
+    def __init__(self, typeId):
+        if(typeId == 'email'):
+            self.message = EMail()
+    
+    def set_recipient(self, recp):
+        self.message.recipient = recp
+    
+    def set_subject(self, subject):
+        self.message.subject = subject
+
+    def set_content(self, content):
+        self.message.content = content
+
+    def build(self):
+        return message
+
+class EMail:
+    def __init__(self):
+        self.msgType = 'email'
+        self.recipient = None
+        self.subject = ''
+        self.content = ''
+
 # The "create_skill()" method is used to create an instance of the skill.
 # Note that it's outside the class itself.
 def create_skill():
-    return HelloWorldSkill()
+    return MessagingSkill()
