@@ -56,73 +56,87 @@ class MessagingSkill(MycroftSkill):
 
     def handle_new_mail(self, message):
         LOGGER.debug("handle_new_mail(message)")
-        self.set_context('MessageStartedContext', 'true')
-        self.message_builder = MessageBuilder('email')
+        self.message_builder = EmailBuilder('email')
         recipient = message.data.get("recipient")
         LOGGER.debug("found recipient: " + str(recipient))
         if recipient:
             self.message_builder.set_recipient(recipient)
+        self.enable_intent("SetMessageRecipient")
+        self.enable_intent("SetMessageRecipientExplicitly")
+        self.enable_intent("MessageSetSubjectExpl")
+        self.enable_intent("MessageSetContentExpl")
+        self.set_context('MessageInProgress', 'true')
         self.next_step()
 
-    @intent_handler(IntentBuilder("SetMessageRecipient").require("MessageStartedContext")
-                    .require("AskedForRecipientContext").require("RecipientEntity").build())
+    @intent_handler(IntentBuilder("SetMessageRecipient").require("MessageInProgress").require("RecipientEntity").build())
+    @adds_context("MessageInProgress")
     def handle_set_recipient(self, message):
         LOGGER.debug("handle_set_recipient(message)")
-        self.handle_set_recipient_explicitly(message)
-
-    @intent_handler(IntentBuilder("SetMessageRecipientExplicitly").require("MessageStartedContext")
-                    .require("RecipientEntity").require("SetCommand").require("RecipientEntity").build())
-    def handle_set_recipient_explicitly(self, message):
-        LOGGER.debug("handle_set_recipient_explicitly(message)")
         self.message_builder.set_recipient(message.data.get('RecipientEntity'))
         self.remove_context("AskedForRecipientContext")
         self.next_step()
 
-    @intent_handler(IntentBuilder('MessageSetSubject').require('MessageStartedContext').require('Subject')
-                    .build())
+    @intent_handler(IntentBuilder('MessageSetSubjectExpl')
+                    .require("MessageInProgress").require('Subject').build())
+    @adds_context("MessageInProgress")
     def handle_set_subject_explicitly(self, message):
         LOGGER.debug("handle_set_subject_excplicitly(message)")
-        self.set_subject(message.data.get("Subject"))
+        subject_regex = re.compile(r"(?:set (?:the )?(?:subject|title) (?:of the message )?to (?P<subject1>.*))$"
+                                   + r"|(?:(?:the )?(?:subject|title) (?:of the message )?is (?P<subject2>.*))$")
 
-    @intent_handler(IntentBuilder("MessageSetSubjectOrContent").require("MessageStartedContext")
-                    .require("AskedForSubjectContext").build())
-    def handle_set_subject(self, message):
-        LOGGER.debug("handle_set_subject(message)")
-        self.set_subject(message.data.get("utterance"))
-
-    def set_subject(self, subject):
-        LOGGER.debug("set_subject(subject)")
+        match = subject_regex.search(message.data.get("utterance"))
+        if match:
+            subject = match.group("subject1") or match.group("subject2")
+        elif message.get("AskedForSubject"):
+            subject = message.data.get("utterance")
+        else:
+            self.speak_dialog("not.understood")
+            return
         self.message_builder.set_subject(subject)
         self.next_step()
 
-    @intent_handler(IntentBuilder("MessageSetContent").require("MessageStartedContext").require("Content")
-                    .build())
+    @intent_handler(IntentBuilder("MessageSetContentExpl").require("MessageInProgress").require("Content").build())
+    @adds_context("MessageInProgress")
     def handle_set_content_explicitly(self, message):
         LOGGER.debug("handle_set_content_explicitly(message)")
-        self.set_content(message.data.get("Content"))
+        content_regex = re.compile(r"(?:set (?:the )?content (?:of the message )?to (?P<content1>.*))$"
+                                   + r"|(?:(?:the )?content (?:of the message )?is (?P<content2>.*))$"
+                                   + r"|(?:(?:the )?message (says|reads) (?P<content3>.*))$")
 
-    @intent_handler(IntentBuilder("MessageSetSubjectOrContent").require("MessageStartedContext")
-                    .require("AskedForContentContext").build())
+        match = content_regex.search(message.data.get("utterance"))
+        if match:
+            content = match.group("content1") or match.group("content2") or match.group("content3")
+        else:
+            content = None
+        self.set_content(content)
+
+    #@intent_handler(IntentBuilder("MessageSetContentImpl").require("MessageInProgress").build())
+    #@adds_context("MessageInProgress")
     def handle_set_content(self, message):
         LOGGER.debug("handle_set_content(message)")
+        LOGGER.debug(message.data)
         self.set_content(message.data.get("utterance"))
 
     def set_content(self, content):
         LOGGER.debug("set_content(content)")
+        if len(content) < 3:
+            return
         self.message_builder.set_content(content)
         self.next_step()
 
-    @removes_context('MessageStartedContext')
     def handle_send_message_confirm(self, message):
         LOGGER.debug("handle_send_message_confirm(message)")
-        self.speak_dialog("sending.message.dialog")
+        self.speak_dialog("sending.message")
 
     def next_step(self):
         LOGGER.debug("next_step()")
         if self.message_builder.ready:
+            self.speak_dialog("readout.message")
+            self.speak("The message will be sent to {0}.".format(self.message_builder.message.recipient))
+            self.speak("Its title is {0}.".format(self.message_builder.message.subject))
+            self.speak("The message says: {0}".format(self.message_builder.message.content))
             self.speak_dialog("should.i.send")
         else:
-            self.set_context("MessageStartedContext", "true")
             self.ask_for_next_input()
 
     def ask_for_next_input(self):
@@ -134,12 +148,12 @@ class MessagingSkill(MycroftSkill):
         LOGGER.debug("speaking dialog: 'ask.for." + next_requirement + "'")
         self.speak_dialog("ask.for." + next_requirement, expect_response=True)
 
+        self.remove_context("AskedForContent")
+        self.remove_context("AskedForSubject")
         if next_requirement == "subject":
-            self.set_context("AskedForSubjectContext", "true")
+            self.set_context("AskedForSubject", "true")
         elif next_requirement == "content":
-            self.set_context("AskedForContentContext", "true")
-        elif next_requirement == "recipient":
-            self.set_context("AskedForRecipientContext", "true")
+            self.set_context("AskedForContent", "true")
 
     # The "stop" method defines what Mycroft does when told to stop during
     # the skill's execution. In this case, since the skill's functionality
@@ -149,13 +163,13 @@ class MessagingSkill(MycroftSkill):
         pass
 
 
-class MessageBuilder:
+class EmailBuilder:
     def __init__(self, typeId):
         self.message = None
         self.required_fields = []
 
         if typeId == 'email':
-            self.message = EMail()
+            self.message = Email()
             self.required_fields = [
                 "recipient",
                 "subject",
@@ -164,7 +178,11 @@ class MessageBuilder:
 
     @property
     def ready(self):
-        return len(self.required_fields) == 0
+        if len(self.required_fields) == 0:
+            LOGGER.debug("Message is ready")
+            return True
+        else:
+            return False
     
     def set_recipient(self, recp):
         if "recipient" in self.required_fields:
@@ -185,7 +203,7 @@ class MessageBuilder:
         return self.message
 
 
-class EMail:
+class Email:
     def __init__(self):
         self.msgType = 'email'
         self.recipient = None
