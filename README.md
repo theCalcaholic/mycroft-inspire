@@ -1,6 +1,6 @@
-# Inspire Skill
+# Messaging Skill
 
-Let Mycroft inspire you!
+A messaging skill for the [mycroft assisten](https://mycroft.ai) (e-mail for now, other messenging utilities may follow).
 
 ## Usage
 ...
